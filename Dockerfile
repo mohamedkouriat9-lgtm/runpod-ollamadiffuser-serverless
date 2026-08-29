@@ -11,7 +11,7 @@ WORKDIR /app
 COPY start.sh /app/start.sh
 RUN dos2unix /app/start.sh && chmod +x /app/start.sh
 
-# Chemins vers le Network Volume RunPod (monté sur /runpod-volume
+# Les chemins vers le Network Volume RunPod (monté sur /runpod-volume
 # en mode Serverless, confirmé dans la console). On y avait déjà
 # stocké les modèles sous le dossier "ollamadiffuser-models" lors
 # du pull effectué depuis le Pod classique.

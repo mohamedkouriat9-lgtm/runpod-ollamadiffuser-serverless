@@ -10,7 +10,7 @@ if [ -z "$DEFAULT_MODEL" ]; then
   exit 1
 fi
 
-echo "Modèles disponibles sur le volume :"
+echo "Les modèles disponibles sur le volume :"
 ollamadiffuser list || true
 
 echo "Chargement et démarrage du modèle '${DEFAULT_MODEL}' sur 0.0.0.0:8000..."

@@ -29,5 +29,15 @@ ollamadiffuser list
 echo "============================================"
 
 set +x
-echo "Chargement et démarrage du modèle '${DEFAULT_MODEL}' sur 0.0.0.0:8000..."
-exec ollamadiffuser run "${DEFAULT_MODEL}" --host 0.0.0.0 --port 8000
+echo "Chargement et démarrage du modèle '${DEFAULT_MODEL}' en interne sur 127.0.0.1:8001..."
+ollamadiffuser run "${DEFAULT_MODEL}" --host 127.0.0.1 --port 8001 &
+
+echo "Attente que le modèle soit chargé et le serveur prêt..."
+until curl -sf http://127.0.0.1:8001/api/health > /dev/null 2>&1; do
+  sleep 2
+done
+echo "OllamaDiffuser est prêt en interne."
+
+echo "Démarrage de nginx en façade sur 0.0.0.0:8000..."
+exec nginx -g 'daemon off;'
+

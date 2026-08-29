@@ -1,7 +1,7 @@
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git && \
+    curl git dos2unix && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade pip && \
@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 WORKDIR /app
 COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN dos2unix /app/start.sh && chmod +x /app/start.sh
 
 # Chemins vers le Network Volume RunPod (monté sur /runpod-volume
 # en mode Serverless, confirmé dans la console). On y avait déjà

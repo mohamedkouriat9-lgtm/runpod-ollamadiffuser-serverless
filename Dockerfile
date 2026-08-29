@@ -5,7 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir ollamadiffuser
+    pip install --no-cache-dir ollamadiffuser && \
+    pip uninstall -y hf-xet
 
 WORKDIR /app
 COPY start.sh /app/start.sh
@@ -24,6 +25,7 @@ ENV CACHE_VOLUME_PATH=/runpod-volume/ollamadiffuser-cache
 # Une valeur différente doit être définie (via override d'endpoint
 # RunPod) pour chacun des 4 déploiements :
 #   stable-diffusion-xl-base | z-image-turbo | flux.1-schnell | omnigen
+ENV HF_HUB_DISABLE_XET=1
 ENV DEFAULT_MODEL=stable-diffusion-xl-base
 
 EXPOSE 8000

@@ -2,7 +2,7 @@
 set -e
 set -x
 
-echo "Configuration du stockage vers le Network Volume..."
+echo "Configuration du stockage vers le Network Volume"
 mkdir -p "${MODELS_VOLUME_PATH}"
 mkdir -p "${CACHE_VOLUME_PATH}"
 

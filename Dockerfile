@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git dos2unix && \
@@ -11,7 +11,7 @@ WORKDIR /app
 COPY start.sh /app/start.sh
 RUN dos2unix /app/start.sh && chmod +x /app/start.sh
 
-# Les chemins vers le Network Volume RunPod (monté sur /runpod-volume
+# Chemins vers le Network Volume RunPod (monté sur /runpod-volume
 # en mode Serverless, confirmé dans la console). On y avait déjà
 # stocké les modèles sous le dossier "ollamadiffuser-models" lors
 # du pull effectué depuis le Pod classique.

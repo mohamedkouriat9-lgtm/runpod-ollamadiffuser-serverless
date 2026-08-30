@@ -50,6 +50,31 @@ content = content.replace(
     "            self._inpaint_pipeline = None\n",
 )
 
+# 2bis) Forcer le VAE tiling/slicing directement sur pipeline.vae si le
+# wrapper de haut niveau pipeline.enable_vae_tiling() est absent (c'est le
+# cas de ZImagePipeline, qui ne l'expose pas malgré un VAE qui le supporte).
+# Réduit fortement le pic de VRAM lors de l'encodage d'une image source
+# (étape qui provoquait un CUDA OOM même modèle déjà chargé).
+old_mem_opt_call = "            self._apply_memory_optimizations()\n"
+new_mem_opt_call = (
+    "            self._apply_memory_optimizations()\n"
+    "            try:\n"
+    "                vae = getattr(self.pipeline, \"vae\", None)\n"
+    "                if vae is not None:\n"
+    "                    if hasattr(vae, \"enable_tiling\"):\n"
+    "                        vae.enable_tiling()\n"
+    "                        logger.info(\"Enabled VAE tiling (direct on pipeline.vae)\")\n"
+    "                    if hasattr(vae, \"enable_slicing\"):\n"
+    "                        vae.enable_slicing()\n"
+    "                        logger.info(\"Enabled VAE slicing (direct on pipeline.vae)\")\n"
+    "            except Exception as vae_opt_err:\n"
+    "                logger.warning(f\"Impossible d'activer le VAE tiling/slicing direct: {vae_opt_err}\")\n"
+)
+if old_mem_opt_call not in content:
+    print("ERREUR : point d'insertion pour le VAE tiling introuvable.")
+    sys.exit(1)
+content = content.replace(old_mem_opt_call, new_mem_opt_call)
+
 # 3) Remplacer le bloc d'appel du pipeline dans generate()
 old_call_block = """        try:
             logger.info(

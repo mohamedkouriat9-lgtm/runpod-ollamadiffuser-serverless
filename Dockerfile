@@ -8,6 +8,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir ollamadiffuser && \
     pip uninstall -y hf-xet
 
+COPY patch_generic_strategy.py /tmp/patch_generic_strategy.py
+RUN python3 /tmp/patch_generic_strategy.py \
+    /opt/conda/lib/python3.11/site-packages/ollamadiffuser/core/inference/strategies/generic_strategy.py
+
 WORKDIR /app
 COPY start.sh /app/start.sh
 RUN dos2unix /app/start.sh && chmod +x /app/start.sh

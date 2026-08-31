@@ -1,23 +1,26 @@
 """
 Patch pour ollamadiffuser/core/inference/strategies/generic_strategy.py
 
-Problème : GenericPipelineStrategy charge un seul pipeline (ex: ZImagePipeline,
-texte->image uniquement) et essaie de lui passer un paramètre 'image' lors
-d'un appel /api/generate/img2img, ce que ce pipeline ne supporte pas
-(TypeError: unexpected keyword argument 'image').
+Problème 1 : GenericPipelineStrategy charge un seul pipeline (ex:
+ZImagePipeline, texte->image uniquement) et essaie de lui passer un
+paramètre 'image' lors d'un appel /api/generate/img2img, ce que ce
+pipeline ne supporte pas (TypeError: unexpected keyword argument 'image').
+Solution : conversion à la volée vers l'équivalent img2img/inpaint via
+diffusers.AutoPipelineForImage2Image/Inpainting (.from_pipe()).
 
-Solution DÉFENSIVE : on tente d'abord l'appel normal du pipeline, EXACTEMENT
-comme avant ce patch. Ce n'est QUE si cet appel échoue avec un TypeError
-mentionnant précisément 'image' ou 'mask_image' comme argument inattendu,
-qu'on tente de convertir le pipeline déjà chargé vers son équivalent
-img2img/inpaint via diffusers.AutoPipelineForImage2Image /
-AutoPipelineForInpainting (.from_pipe()), qui réutilise les mêmes poids déjà
-en mémoire sans recharger depuis le disque.
+Problème 2 : certains pipelines (ex: OmniGenPipeline) n'ont pas
+d'équivalent Img2Img mappé dans diffusers, et utilisent un nom de
+paramètre différent pour l'image d'entrée (ex: 'input_images', une
+liste, au lieu de 'image'). Solution : si la conversion de pipeline
+échoue/n'existe pas, on inspecte la signature du pipeline pour un nom
+de paramètre alternatif connu, et on remappe 'image' vers ce paramètre
+avant de retenter l'appel sur le pipeline original (pas de conversion).
 
-Conséquence importante : pour tout modèle dont le pipeline supporte déjà
-nativement 'image' (ex: potentiellement OmniGen, pipeline unifié), le
-comportement est STRICTEMENT IDENTIQUE à avant le patch - aucun risque de
-régression, puisque le chemin de conversion n'est jamais emprunté dans ce cas.
+Le tout reste DÉFENSIF : le chemin normal (appel direct du pipeline)
+est toujours tenté en premier, inchangé. Ces mécanismes de secours ne
+s'activent que sur l'erreur précise "unexpected keyword argument
+'image'/'mask_image'", donc aucun risque de régression pour un modèle
+dont le pipeline supporte déjà nativement ces paramètres.
 """
 import sys
 
@@ -36,25 +39,30 @@ if "AutoPipelineForImage2Image" in content:
 # 1) Ajouter les imports nécessaires
 content = content.replace(
     "from ..base import InferenceStrategy",
+    "import inspect\n"
     "from diffusers import AutoPipelineForImage2Image, AutoPipelineForInpainting\n"
     "from ..base import InferenceStrategy",
 )
 
 # 2) Initialiser les caches de pipelines convertis dans load()
-content = content.replace(
+old_init = (
     "            self.device = device\n"
-    "            self.model_config = model_config\n",
+    "            self.model_config = model_config\n"
+)
+new_init = (
     "            self.device = device\n"
     "            self.model_config = model_config\n"
     "            self._img2img_pipeline = None\n"
-    "            self._inpaint_pipeline = None\n",
+    "            self._inpaint_pipeline = None\n"
 )
+if old_init not in content:
+    print("ERREUR : point d'insertion pour l'init des caches introuvable.")
+    sys.exit(1)
+content = content.replace(old_init, new_init)
 
 # 2bis) Forcer le VAE tiling/slicing directement sur pipeline.vae si le
 # wrapper de haut niveau pipeline.enable_vae_tiling() est absent (c'est le
 # cas de ZImagePipeline, qui ne l'expose pas malgré un VAE qui le supporte).
-# Réduit fortement le pic de VRAM lors de l'encodage d'une image source
-# (étape qui provoquait un CUDA OOM même modèle déjà chargé).
 old_mem_opt_call = "            self._apply_memory_optimizations()\n"
 new_mem_opt_call = (
     "            self._apply_memory_optimizations()\n"
@@ -133,18 +141,53 @@ new_call_block = """        try:
                     logger.warning(f"Impossible de convertir le pipeline: {conv_err}")
 
                 if active_pipeline is not None:
-                    output = active_pipeline(**gen_kwargs)
-                    image = output.images[0]
-                    return self._sanitize_image(image)
+                    try:
+                        output = active_pipeline(**gen_kwargs)
+                        image = output.images[0]
+                        return self._sanitize_image(image)
+                    except Exception as conv_call_err:
+                        logger.warning(f"Appel du pipeline converti échoué: {conv_call_err}")
+
+                # Pas de pipeline converti disponible (ex: OmniGen, pas de
+                # variante Img2Img dans diffusers) : on tente un remapping
+                # de paramètre vers un nom alternatif connu (ex: 'image' ->
+                # 'input_images') si le pipeline original l'accepte.
+                ALT_IMAGE_PARAM_CANDIDATES = ["input_images", "init_image", "input_image"]
+                try:
+                    sig_params = inspect.signature(self.pipeline.__call__).parameters
+                except (TypeError, ValueError):
+                    sig_params = {}
+                remapped = False
+                if "image" in gen_kwargs:
+                    for alt_name in ALT_IMAGE_PARAM_CANDIDATES:
+                        if alt_name in sig_params:
+                            img_value = gen_kwargs.pop("image")
+                            # Les pipelines à paramètre pluriel attendent une liste
+                            gen_kwargs[alt_name] = [img_value] if alt_name.endswith("s") else img_value
+                            logger.info(f"Paramètre 'image' remappé vers '{alt_name}' pour {type(self.pipeline).__name__}")
+                            remapped = True
+                            break
+                if remapped:
+                    try:
+                        output = self.pipeline(**gen_kwargs)
+                        image = output.images[0]
+                        return self._sanitize_image(image)
+                    except Exception as remap_err:
+                        logger.error(f"Appel avec paramètre remappé échoué: {remap_err}")
+                        return self._create_error_image(str(remap_err), prompt)
 
             # Some pipelines don't accept all standard params (e.g., width/height)
             # Retry without optional params
             logger.warning(f"Pipeline call failed: {e}. Retrying with minimal params.")
             for key in ("width", "height", "negative_prompt"):
                 gen_kwargs.pop(key, None)
-            output = self.pipeline(**gen_kwargs)
-            image = output.images[0]
-            return self._sanitize_image(image)
+            try:
+                output = self.pipeline(**gen_kwargs)
+                image = output.images[0]
+                return self._sanitize_image(image)
+            except Exception as retry_err:
+                logger.error(f"Generation failed on retry: {retry_err}")
+                return self._create_error_image(str(retry_err), prompt)
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             return self._create_error_image(str(e), prompt)"""

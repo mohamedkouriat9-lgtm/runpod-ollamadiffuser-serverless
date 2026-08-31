@@ -12,6 +12,10 @@ COPY patch_generic_strategy.py /tmp/patch_generic_strategy.py
 RUN python3 /tmp/patch_generic_strategy.py \
     /opt/conda/lib/python3.11/site-packages/ollamadiffuser/core/inference/strategies/generic_strategy.py
 
+COPY patch_flux_strategy.py /tmp/patch_flux_strategy.py
+RUN python3 /tmp/patch_flux_strategy.py \
+    /opt/conda/lib/python3.11/site-packages/ollamadiffuser/core/inference/strategies/flux_strategy.py
+
 WORKDIR /app
 COPY start.sh /app/start.sh
 RUN dos2unix /app/start.sh && chmod +x /app/start.sh
